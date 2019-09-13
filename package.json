@@ -1,0 +1,36 @@
+{
+  "name": "circuitmqtt",
+  "version": "1.0.0",
+  "description": "Integrates Circuit with MQTT controlled devices",
+  "main": "index.js",
+  "dependencies": {
+    "bunyan": "^1.8.12",
+    "circuit-sdk": "^1.2.6402",
+    "mqtt": "^3.0.0"
+  },
+  "devDependencies": {
+    "eslint": "^6.3.0",
+    "eslint-config-google": "^0.14.0"
+  },
+  "scripts": {
+    "test": "test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wdmartins/circuitMqtt.git"
+  },
+  "keywords": [
+    "Circuit",
+    "SDK",
+    "MQTT",
+    "Raspberry",
+    "ESP8266",
+    "IoT"
+  ],
+  "author": "Walter Martins",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/wdmartins/circuitMqtt/issues"
+  },
+  "homepage": "https://github.com/wdmartins/circuitMqtt#readme"
+}
