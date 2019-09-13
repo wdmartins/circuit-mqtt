@@ -19,7 +19,7 @@ Verify mosquitto installation:
 
 Note: if you get an error saying "Address already in use" is probably because the broker is already running.
 
-Also not the port number (usually 1883) you will needed to configured the application.
+Also note the port number (usually 1883) you may need it to configured the application.
 
 Test the mosquitto installation:
   1. Open two terminals
