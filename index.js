@@ -110,36 +110,83 @@ let Bot = function(client) {
      * processFormSubmission
      */
     function processFormSubmission(evt) {
+        let currentIntensity;
+        let currentColor;
         logger.info(`[MQTT] process form submission. ${evt.form.id}`);
         logger.info(`[MQTT] Form Data: ${JSON.stringify(evt.form.data)}`);
         evt.form.data.forEach(ctrl => {
             logger.debug(`[MQTT] ${ctrl.key}: ${ctrl.value}`);
-            // switch (ctrl.name) {
-            //     case 'openDoor':
-            //         switch(ctrl.value) {
-            //             case 'openDoor':
-            //                 openDoor();
-            //                 break;
-            //             case 'endCall':
-            //                 break;
-            //             default:
-            //                 logger.error(`Unknown value in submitted form: ${ctrl.value}`);
-            //                 return;
-            //         }
-            //         app.currentCall && client.leaveConference(app.currentCall.callId);
-            //         client.updateTextItem({
-            //             itemId: evt.itemId,
-            //             content: (ctrl.value === 'openDoor' ? 'Door has been opened' : 'Entrance denied'),
-            //             form: {
-            //                 id: evt.form.id
-            //             }
-            //         });
-            //         break;
-            //     default:
-            //         logger.error(`Unknown key in submitted form: ${ctrl.key}`);
-            //         break;
-            // }
+            switch (ctrl.name) {
+                case 'intensity':
+                    currentIntensity = ctrl.value;
+                    break;
+                case 'color':
+                    currentColor = ctrl.value;
+                    break;
+                default:
+                    logger.error(`Unknown key in submitted form: ${ctrl.key}`);
+                    break;
+            }
         });
+        logger.info(`[MQTT] Intensity set to ${currentIntensity} and color set to ${currentColor}`);
+        // TODO: Send MQTT command
+
+        // Update form
+        client.updateTextItem({
+            itemId: evt.itemId,
+            content: 'Control Form',
+            form: {
+                id: 'controlForm',
+                controls: [{
+                    type: Circuit.Enums.FormControlType.LABEL,
+                    text: 'Intensity'
+                    },{
+                    type: Circuit.Enums.FormControlType.DROPDOWN,
+                    name: 'intensity',
+                    defaultValue: currentIntensity || '0',
+                    options: [{
+                        text: 'Off',
+                        value: '0'
+                    },{
+                        text: '25%',
+                        value: '25'
+                    },{
+                        text: '50%',
+                        value: '50'
+                    },{
+                        text: '75%',
+                        value: '75'
+                    },{
+                        text: '100%',
+                        value: '100'
+                    }]
+                },{
+                    type: Circuit.Enums.FormControlType.LABEL,
+                    text: 'Color'
+                },{
+                    type: Circuit.Enums.FormControlType.DROPDOWN,
+                    name: 'color',
+                    defaultValue: currentColor || 'red',
+                    options: [{
+                        text: 'RED',
+                        value: 'red'
+                    },{
+                        text: 'GREEN',
+                        value: 'green'
+                    },{
+                        text: 'BLUE',
+                        value: 'blue'
+                    }]
+                }, {
+                    type: Circuit.Enums.FormControlType.BUTTON,
+                    options: [{
+                        text: 'Submit',
+                        notification: 'Submitted',
+                        action: 'submit'
+                    }]
+                }]
+            }
+        })
     }
 
     /*
@@ -190,6 +237,10 @@ let Bot = function(client) {
      */
     this.connectToMqttBroker = function() {
         return new Promise((resolve, reject) => {
+            if (!config.mqttBroker) {
+                resolve();
+                return;
+            }
             mqttClient = mqtt.connect([config.mqttBroker]);
             mqttClient.on('connect', resolve);
             mqttClient.on('error', reject);
