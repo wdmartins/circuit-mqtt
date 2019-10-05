@@ -5,6 +5,9 @@ const bunyan = require('bunyan');
 const Circuit = require('circuit-sdk');
 const mqtt = require('mqtt');
 
+const MQTT_TOPIC_SET = '/circuit/rgbw/set';
+const MQTT_TOPIC_STATE = '/circuit/rgbw';
+
 let sdkLogger = bunyan.createLogger({
     name: 'sdk',
     stream: process.stdout,
@@ -95,6 +98,11 @@ let Bot = function(client) {
                         value: 'blue'
                     }]
                 }, {
+                    type: Circuit.Enums.FormControlType.CHECKBOX,
+                    name: 'christmas',
+                    text: `It's Christmas!`,
+                    defaultValue: 'false'
+                }, {
                     type: Circuit.Enums.FormControlType.BUTTON,
                     options: [{
                         text: 'Submit',
@@ -112,6 +120,7 @@ let Bot = function(client) {
     function processFormSubmission(evt) {
         let currentIntensity;
         let currentColor;
+        let effect = 'colorful';
         logger.info(`[MQTT] process form submission. ${evt.form.id}`);
         logger.info(`[MQTT] Form Data: ${JSON.stringify(evt.form.data)}`);
         evt.form.data.forEach(ctrl => {
@@ -123,15 +132,26 @@ let Bot = function(client) {
                 case 'color':
                     currentColor = ctrl.value;
                     break;
+                case 'christmas':
+                    effect = (ctrl.value === 'true' ? 'christmas' : 'colorful');
+                    break;
                 default:
                     logger.error(`Unknown key in submitted form: ${ctrl.key}`);
                     break;
             }
         });
         logger.info(`[MQTT] Intensity set to ${currentIntensity} and color set to ${currentColor}`);
-        // TODO: Send MQTT command
-
-        // Update form
+        // Send MQTT command
+        let state = (currentIntensity === 0 ? 'OFF' : 'ON');
+        let brightness = 255 * currentIntensity / 100;
+        logger.info(`[MQTT] Sending state ${state}, color ${currentColor}, brightness ${brightness}, effect ${effect}`);
+        let payload = `{"state": "${state}","color":{"r": ${(currentColor == "red" ? 255 : 0)},"g": ${(currentColor == "green" ? 255 : 0)},"b": ${(currentColor == "blue" ? 255 : 0)}},"brightness": ${brightness},"white_value": 0, "effect":"colorful"}`;
+        if (effect !== 'colorful') {
+            payload = `{"state": "ON", effect: "${effect}","brightness": ${brightness}}`;
+        }
+        logger.info(`[MQTT] Payload = ${payload}`);
+        mqttClient.publish(MQTT_TOPIC_SET, payload)
+        // Update form TODO: Move to updateForm function (base on MQTT set payload)
         client.updateTextItem({
             itemId: evt.itemId,
             content: 'Control Form',
@@ -177,6 +197,11 @@ let Bot = function(client) {
                         text: 'BLUE',
                         value: 'blue'
                     }]
+                }, {
+                    type: Circuit.Enums.FormControlType.CHECKBOX,
+                    name: 'christmas',
+                    text: `It's Christmas!`,
+                    defaultValue: (effect === 'christmas' ? 'true' : 'false')
                 }, {
                     type: Circuit.Enums.FormControlType.BUTTON,
                     options: [{
@@ -244,8 +269,23 @@ let Bot = function(client) {
             mqttClient = mqtt.connect([config.mqttBroker]);
             mqttClient.on('connect', resolve);
             mqttClient.on('error', reject);
-            mqttClient.on('message', (message) => {
-                logger.info(`[MQTT] Received message "${message}`);
+            mqttClient.on('message', (topic, message) => {
+                logger.info(`[MQTT] Received topic "${topic}`);
+                logger.info(`[MQTT] Received message "${message.toString()}`);
+            });
+        });
+    }
+
+    this.setupMqtt = function() {
+        return new Promise((resolve, reject) => {
+            mqttClient.subscribe(MQTT_TOPIC_STATE, function(err, qos) {
+                if (err) {
+                    logger.error(`[MQTT] Error subscribing. Error ${err}`);
+                    reject();
+                    return;
+                }
+                logger.info(`[MQTT] Subscription successful. Qos: ${qos}`);
+                resolve();
             });
         });
     }
@@ -320,9 +360,10 @@ let Bot = function(client) {
 };
 
 let bot = new Bot(new Circuit.Client(config.bot));
-bot.connectToMqttBroker()
-    .then(bot.logonBot)
+bot.logonBot()
     .then(bot.updateUserData)
+    .then(bot.connectToMqttBroker)
+    .then(bot.setupMqtt)
     .then(bot.sayHi)
     .catch(bot.terminate);
 
