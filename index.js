@@ -5,7 +5,9 @@ const bunyan = require('bunyan');
 const Circuit = require('circuit-sdk');
 const mqtt = require('mqtt');
 
+// MQTT Topic to set the light state
 const MQTT_TOPIC_SET = '/circuit/rgbw/set';
+// MQTT Topic to received the actual light state and update the control form accordingly
 const MQTT_TOPIC_STATE = '/circuit/rgbw';
 
 let sdkLogger = bunyan.createLogger({
@@ -19,42 +21,22 @@ let logger = bunyan.createLogger({
     stream: process.stdout
 });
 
+// The Circuit user
 let user;
+// The Conversation where form will be posted and updated
 let monitoringConv;
+// The MQTT Client
 let mqttClient;
+// The Item Id of the current form
 let currentItemId;
+// Current light values
 let currentIntensity;
 let currentColor;
 let currentEffect;
 
-logger.info('[MQTT]: Instantiate Circuit client');
-
 Circuit.setLogger(sdkLogger);
 
 let Bot = function(client) {
-
-    /*
-     * processItemAddedEvent
-     */
-    function processItemAddedEvent(evt) {
-        if (evt.item.text && evt.item.creatorId !== user.userId) {
-            logger.info(`[MQTT] Received itemAdded event with itemId [${evt.item.itemId}] and content [${evt.item.text.content}]`);
-            // processCommand(evt.item.convId, evt.item.parentItemId || evt.item.itemId, evt.item.text.content);
-        }
-    }
-
-    /*
-     * processItemUpdatedEvent
-     */
-    function processItemUpdatedEvent(evt) {
-        if (evt.item.text && evt.item.creatorId !== user.userId) {
-            if (evt.item.text.content) {
-                let lastPart = evt.item.text.content.split('<hr>').pop();
-                logger.info(`[MQTT] Received itemUpdated event with: ${lastPart}`);
-                // processCommand(evt.item.convId, evt.item.parentItemId || evt.item.itemId, lastPart);
-            }
-        }
-    }
 
     /*
      * sendControlForm
@@ -119,28 +101,25 @@ let Bot = function(client) {
                 }]
             }
         };
-        logger.info(`[MQTT] About to send control form. currentItemId = ${currentItemId}`);
         if (currentItemId) {
+            // Form has been posted already. Just update the same post with the current values
             item.itemId = currentItemId;
             await client.updateTextItem(item);
             return;
         }
+        // Form has not been posted yet. See if the conversation has been resolved already
         if (!monitoringConv) {
             logger.info(`[MQTT] Not ready to send form.`);
             return;
         }
-        logger.info(`[MQTT] Add text item for conversation id = ${monitoringConv.convId}`);
-        logger.info(`[MQTT] Item = ${JSON.stringify(item)}`);
-        await client.addTextItem(monitoringConv.convId, item);
+        // Post form for the first time
+        client.addTextItem(monitoringConv.convId, item).then((item => {currentItemId = item.itemId}));
     }
 
     /*
      * processFormSubmission
      */
     function processFormSubmission(evt) {
-        let currentIntensity;
-        let currentColor;
-        let effect = 'colorful';
         logger.info(`[MQTT] process form submission. ${evt.form.id}`);
         logger.info(`[MQTT] Form Data: ${JSON.stringify(evt.form.data)}`);
         evt.form.data.forEach(ctrl => {
@@ -153,47 +132,29 @@ let Bot = function(client) {
                     currentColor = ctrl.value;
                     break;
                 case 'christmas':
-                    effect = (ctrl.value === 'true' ? 'christmas' : 'colorful');
+                    currentEffect = (ctrl.value === 'true' ? 'christmas' : 'colorful');
                     break;
                 default:
                     logger.error(`Unknown key in submitted form: ${ctrl.key}`);
                     break;
             }
         });
-        logger.info(`[MQTT] Intensity set to ${currentIntensity} and color set to ${currentColor}`);
-        // Send MQTT command
+        logger.info(`[MQTT] Intensity set to ${currentIntensity}, color set to ${currentColor} and effect is ${currentEffect}`);
+
+        // Prepare MQTT payload
         let state = (currentIntensity === 0 ? 'OFF' : 'ON');
         let brightness = 255 * currentIntensity / 100;
-        logger.info(`[MQTT] Sending state ${state}, color ${currentColor}, brightness ${brightness}, effect ${effect}`);
+        logger.info(`[MQTT] Sending state ${state}, color ${currentColor}, brightness ${brightness}, effect ${currentEffect}`);
+
         let payload = `{"state": "${state}","color":{"r": ${(currentColor == "red" ? 255 : 0)},"g": ${(currentColor == "green" ? 255 : 0)},"b": ${(currentColor == "blue" ? 255 : 0)}},"brightness": ${brightness},"white_value": 0, "effect":"colorful"}`;
-        if (effect !== 'colorful') {
-            payload = `{"state": "ON", effect: "${effect}","brightness": ${brightness}}`;
+        if (currentEffect !== 'colorful') {
+            // Current color and is irrelevant for effects other than colorful and State is force to 'ON'.
+            payload = `{"state": "ON", effect: "${currentEffect}","brightness": ${brightness}}`;
         }
         logger.info(`[MQTT] Payload = ${payload}`);
+
+        // Send MQTT command
         mqttClient.publish(MQTT_TOPIC_SET, payload)
-    }
-
-    /*
-     * addEventListeners
-     */
-    function addEventListeners(client) {
-        logger.info('[MQTT] addEventListeners');
-        client.addEventListener('itemAdded', processItemAddedEvent);
-        client.addEventListener('itemUpdated', processItemUpdatedEvent);
-        client.addEventListener('formSubmission', processFormSubmission);
-    }
-
-    /*
-     * buildConversationItem
-     */
-    function buildConversationItem(parentId, subject, content, attachments) {
-        return {
-            parentId: parentId,
-            subject: subject,
-            content: content,
-            contentType: Circuit.Constants.TextItemContentType.RICH,
-            attachments: attachments && [attachments],
-        };
     }
 
     /*
@@ -222,7 +183,7 @@ let Bot = function(client) {
     this.connectToMqttBroker = function() {
         return new Promise((resolve, reject) => {
             if (!config.mqttBroker) {
-                resolve();
+                reject('MQTT Broker is not configured on config.json');
                 return;
             }
             mqttClient = mqtt.connect([config.mqttBroker]);
@@ -231,20 +192,26 @@ let Bot = function(client) {
             mqttClient.on('message', (topic, message) => {
                 logger.info(`[MQTT] Received topic ${topic}`);
                 logger.info(`[MQTT] Received message ${message.toString()}`);
-                // Parsed the embedded JSON object
-                // message = message.substr(1, message.length - 2).replace(/\\"/g, '"');
-                message = JSON.parse(message);
-                logger.info(`[MQTT] Parsed message ${JSON.stringify(message)}`);
-                if (message) {
-                    if (message.color) {
-                        currentColor = message.color.r > 0 ? 'red' : message.color.g > 0 ? 'green' : message.color.b > 0 ? 'blue' : currentColor;
-                    }
-                    if (message.brightness) {
-                        currentIntensity = message.brightness < 255 * 0.25 ? '0' : message.brightness < 255 * 0.5 ? '25' : message.brightness < 255 * 0.75 ? '50' : message.brightness < 255 ? '75' : '100';
-                    }
-                    currentEffect = message.effect || currentEffect;
+                switch (topic) {
+                    case MQTT_TOPIC_STATE:
+                        // Parse MQTT message as JSON
+                        message = JSON.parse(message);
+                        if (message) {
+                            if (message.color) {
+                                currentColor = message.color.r > 0 ? 'red' : message.color.g > 0 ? 'green' : message.color.b > 0 ? 'blue' : currentColor;
+                            }
+                            if (message.brightness) {
+                                currentIntensity = message.brightness < 255 * 0.25 ? '0' : message.brightness < 255 * 0.5 ? '25' : message.brightness < 255 * 0.75 ? '50' : message.brightness < 255 ? '75' : '100';
+                            }
+                            currentEffect = message.effect || currentEffect;
+                        }
+                        // Update control form according to received light values
+                        sendControlForm();
+                        break;
+                    default:
+                        logger.warn(`[MQTT] Unhandled Topic: ${topic}`);
+                        break;
                 }
-                sendControlForm();
             });
         });
     }
@@ -282,7 +249,7 @@ let Bot = function(client) {
     this.logonBot = function() {
         return new Promise((resolve) => {
             let retry;
-            addEventListeners(client);
+            client.addEventListener('formSubmission', processFormSubmission);
             let logon = async function() {
                 try {
                     user = await client.logon();
@@ -298,15 +265,12 @@ let Bot = function(client) {
     };
 
     /*
-     * say Hi
+     * start
      */
-    this.sayHi = async function() {
+    this.start = async function() {
         logger.info('[MQTT] say hi');
         monitoringConv = await getMonitoringConversation();
         if (monitoringConv) {
-            client.addTextItem(monitoringConv.convId, buildConversationItem(null, `Hi from ${user.displayName}`,
-            `I am ready. Use "@${user.displayName} help , or ${user.displayName} help, or just //help" to see available commands`));
-
             sendControlForm();
         }
     };
@@ -340,6 +304,6 @@ bot.logonBot()
     .then(bot.updateUserData)
     .then(bot.connectToMqttBroker)
     .then(bot.setupMqtt)
-    .then(bot.sayHi)
+    .then(bot.start)
     .catch(bot.terminate);
 
