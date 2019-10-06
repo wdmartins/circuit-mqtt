@@ -1,0 +1,20 @@
+{
+    "bot": {
+        "client_id": "(replace with) your-client-id",
+        "client_secret": "(replace with) your-client-secret",
+        "domain": "circuitsandbox.net",
+        "first_name": "Circuit",
+        "last_name": "+ MQTT + ESP8266",
+        "scope": "READ_USER_PROFILE,WRITE_USER_PROFILE,READ_CONVERSATIONS,WRITE_CONVERSATIONS,READ_USER,CALLS,CALL_RECORDING,MENTION_EVENT,USER_MANAGEMENT"
+    },
+    "botOwnerEmail": "(replace with) bot-administrator-circuit-email-address",
+    "convId": "(replace with) convid-where-the-control-form-will-be-posted",
+    "logFile": "./mqtt.log",
+    "mqttBroker": {
+        "host": "(replace with) mqtt-broker-addres-for (example: localhost)",
+        "port": "(replace with) mqtt-broker-port (default: 1883)",
+        "username": "(replace with) mqtt-client-credential-username",
+        "password": "(replace with) mqtt-client-credential-password"
+    },
+    "sdkLogLevel": 0
+}
