@@ -22,6 +22,10 @@ let logger = bunyan.createLogger({
 let user;
 let monitoringConv;
 let mqttClient;
+let currentItemId;
+let currentIntensity;
+let currentColor;
+let currentEffect;
 
 logger.info('[MQTT]: Instantiate Circuit client');
 
@@ -52,48 +56,51 @@ let Bot = function(client) {
         }
     }
 
-    async function sendControlForm(convId, currentIntensity, currentColor) {
-        await client.addTextItem(convId, {
+    /*
+     * sendControlForm
+     */
+    async function sendControlForm() {
+        let item = {
             content: 'Control Form',
             form: {
                 id: 'controlForm',
                 controls: [{
                     type: Circuit.Enums.FormControlType.LABEL,
                     text: 'Intensity'
-                    },{
+                    }, {
                     type: Circuit.Enums.FormControlType.DROPDOWN,
                     name: 'intensity',
                     defaultValue: currentIntensity || '0',
                     options: [{
                         text: 'Off',
                         value: '0'
-                    },{
+                    }, {
                         text: '25%',
                         value: '25'
-                    },{
+                    }, {
                         text: '50%',
                         value: '50'
-                    },{
+                    }, {
                         text: '75%',
                         value: '75'
-                    },{
+                    }, {
                         text: '100%',
                         value: '100'
                     }]
-                },{
+                }, {
                     type: Circuit.Enums.FormControlType.LABEL,
                     text: 'Color'
-                },{
+                }, {
                     type: Circuit.Enums.FormControlType.DROPDOWN,
                     name: 'color',
                     defaultValue: currentColor || 'red',
                     options: [{
                         text: 'RED',
                         value: 'red'
-                    },{
+                    }, {
                         text: 'GREEN',
                         value: 'green'
-                    },{
+                    }, {
                         text: 'BLUE',
                         value: 'blue'
                     }]
@@ -101,7 +108,7 @@ let Bot = function(client) {
                     type: Circuit.Enums.FormControlType.CHECKBOX,
                     name: 'christmas',
                     text: `It's Christmas!`,
-                    defaultValue: 'false'
+                    defaultValue: (currentEffect === 'christmas' ? 'true' : 'false')
                 }, {
                     type: Circuit.Enums.FormControlType.BUTTON,
                     options: [{
@@ -111,7 +118,20 @@ let Bot = function(client) {
                     }]
                 }]
             }
-        });
+        };
+        logger.info(`[MQTT] About to send control form. currentItemId = ${currentItemId}`);
+        if (currentItemId) {
+            item.itemId = currentItemId;
+            await client.updateTextItem(item);
+            return;
+        }
+        if (!monitoringConv) {
+            logger.info(`[MQTT] Not ready to send form.`);
+            return;
+        }
+        logger.info(`[MQTT] Add text item for conversation id = ${monitoringConv.convId}`);
+        logger.info(`[MQTT] Item = ${JSON.stringify(item)}`);
+        await client.addTextItem(monitoringConv.convId, item);
     }
 
     /*
@@ -151,67 +171,6 @@ let Bot = function(client) {
         }
         logger.info(`[MQTT] Payload = ${payload}`);
         mqttClient.publish(MQTT_TOPIC_SET, payload)
-        // Update form TODO: Move to updateForm function (base on MQTT set payload)
-        client.updateTextItem({
-            itemId: evt.itemId,
-            content: 'Control Form',
-            form: {
-                id: 'controlForm',
-                controls: [{
-                    type: Circuit.Enums.FormControlType.LABEL,
-                    text: 'Intensity'
-                    },{
-                    type: Circuit.Enums.FormControlType.DROPDOWN,
-                    name: 'intensity',
-                    defaultValue: currentIntensity || '0',
-                    options: [{
-                        text: 'Off',
-                        value: '0'
-                    },{
-                        text: '25%',
-                        value: '25'
-                    },{
-                        text: '50%',
-                        value: '50'
-                    },{
-                        text: '75%',
-                        value: '75'
-                    },{
-                        text: '100%',
-                        value: '100'
-                    }]
-                },{
-                    type: Circuit.Enums.FormControlType.LABEL,
-                    text: 'Color'
-                },{
-                    type: Circuit.Enums.FormControlType.DROPDOWN,
-                    name: 'color',
-                    defaultValue: currentColor || 'red',
-                    options: [{
-                        text: 'RED',
-                        value: 'red'
-                    },{
-                        text: 'GREEN',
-                        value: 'green'
-                    },{
-                        text: 'BLUE',
-                        value: 'blue'
-                    }]
-                }, {
-                    type: Circuit.Enums.FormControlType.CHECKBOX,
-                    name: 'christmas',
-                    text: `It's Christmas!`,
-                    defaultValue: (effect === 'christmas' ? 'true' : 'false')
-                }, {
-                    type: Circuit.Enums.FormControlType.BUTTON,
-                    options: [{
-                        text: 'Submit',
-                        notification: 'Submitted',
-                        action: 'submit'
-                    }]
-                }]
-            }
-        })
     }
 
     /*
@@ -270,12 +229,29 @@ let Bot = function(client) {
             mqttClient.on('connect', resolve);
             mqttClient.on('error', reject);
             mqttClient.on('message', (topic, message) => {
-                logger.info(`[MQTT] Received topic "${topic}`);
-                logger.info(`[MQTT] Received message "${message.toString()}`);
+                logger.info(`[MQTT] Received topic ${topic}`);
+                logger.info(`[MQTT] Received message ${message.toString()}`);
+                // Parsed the embedded JSON object
+                // message = message.substr(1, message.length - 2).replace(/\\"/g, '"');
+                message = JSON.parse(message);
+                logger.info(`[MQTT] Parsed message ${JSON.stringify(message)}`);
+                if (message) {
+                    if (message.color) {
+                        currentColor = message.color.r > 0 ? 'red' : message.color.g > 0 ? 'green' : message.color.b > 0 ? 'blue' : currentColor;
+                    }
+                    if (message.brightness) {
+                        currentIntensity = message.brightness < 255 * 0.25 ? '0' : message.brightness < 255 * 0.5 ? '25' : message.brightness < 255 * 0.75 ? '50' : message.brightness < 255 ? '75' : '100';
+                    }
+                    currentEffect = message.effect || currentEffect;
+                }
+                sendControlForm();
             });
         });
     }
 
+    /*
+     * setupMqtt
+     */
     this.setupMqtt = function() {
         return new Promise((resolve, reject) => {
             mqttClient.subscribe(MQTT_TOPIC_STATE, function(err, qos) {
@@ -331,13 +307,13 @@ let Bot = function(client) {
             client.addTextItem(monitoringConv.convId, buildConversationItem(null, `Hi from ${user.displayName}`,
             `I am ready. Use "@${user.displayName} help , or ${user.displayName} help, or just //help" to see available commands`));
 
-            sendControlForm(monitoringConv.convId, false);
+            sendControlForm();
         }
     };
 
 
     /*
-     * Update user display name if needed
+     * updateUserData
      */
     this.updateUserData = async function() {
         if (user && user.displayName !== `${config.bot.first_name} ${config.bot.last_name}`) {
