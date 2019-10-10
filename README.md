@@ -33,6 +33,18 @@ Test the mosquitto installation:
 If you see 'Hello Circuit' on the first terminal then all is good and ready.
 
 
+## Install and run the application
+
+    git clone https://github.com/wdmartins/circuit-mqtt.git
+    cd circuit-mqtt
+    cp config.template.json config.json
+    
+Edit config.json and complete the required information
+
+    npm install
+    node index.js | ./node_modules/.bin/bunyan
+
+
 
 
 
