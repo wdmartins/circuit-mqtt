@@ -10,13 +10,13 @@ const MQTT_TOPIC_SET = '/circuit/rgbw/set';
 // MQTT Topic to received the actual light state and update the control form accordingly
 const MQTT_TOPIC_STATE = '/circuit/rgbw';
 
-let sdkLogger = bunyan.createLogger({
+const sdkLogger = bunyan.createLogger({
     name: 'sdk',
     stream: process.stdout,
     level: config.sdkLogLevel
 });
 
-let logger = bunyan.createLogger({
+const logger = bunyan.createLogger({
     name: 'mqtt',
     stream: process.stdout
 });
@@ -36,7 +36,7 @@ let currentEffect;
 
 Circuit.setLogger(sdkLogger);
 
-let Bot = function(client) {
+const Bot = function(client) {
 
     /*
      * sendControlForm
@@ -246,7 +246,7 @@ let Bot = function(client) {
     /*
      * Logon Client
      */
-    this.logonBot = function() {
+    this.logon = function() {
         return new Promise((resolve) => {
             let retry;
             client.addEventListener('formSubmission', processFormSubmission);
@@ -300,7 +300,7 @@ let Bot = function(client) {
 };
 
 let bot = new Bot(new Circuit.Client(config.bot));
-bot.logonBot()
+bot.logon()
     .then(bot.updateUserData)
     .then(bot.connectToMqttBroker)
     .then(bot.setupMqtt)
