@@ -142,8 +142,8 @@ const Bot = function(client) {
         logger.info(`[MQTT] Intensity set to ${currentIntensity}, color set to ${currentColor} and effect is ${currentEffect}`);
 
         // Prepare MQTT payload
-        let state = (currentIntensity === 0 ? 'OFF' : 'ON');
-        let brightness = 255 * currentIntensity / 100;
+        const state = (currentIntensity === 0 ? 'OFF' : 'ON');
+        const brightness = 255 * currentIntensity / 100;
         logger.info(`[MQTT] Sending state ${state}, color ${currentColor}, brightness ${brightness}, effect ${currentEffect}`);
 
         let payload = `{"state": "${state}","color":{"r": ${(currentColor == "red" ? 255 : 0)},"g": ${(currentColor == "green" ? 255 : 0)},"b": ${(currentColor == "blue" ? 255 : 0)}},"brightness": ${brightness},"white_value": 0, "effect":"colorful"}`;
@@ -164,7 +164,7 @@ const Bot = function(client) {
         if (config.convId) {
             logger.info(`[MQTT] Check if conversation ${config.convId} exists`);
             try {
-                let conv = await client.getConversationById(config.convId);
+                const conv = await client.getConversationById(config.convId);
                 if (conv) {
                     logger.info(`[MQTT] conversation ${config.convId} exists`);
                     return conv;
@@ -219,17 +219,12 @@ const Bot = function(client) {
     /*
      * setupMqtt
      */
-    this.setupMqtt = function() {
-        return new Promise((resolve, reject) => {
-            mqttClient.subscribe(MQTT_TOPIC_STATE, function(err, qos) {
-                if (err) {
-                    logger.error(`[MQTT] Error subscribing. Error ${err}`);
-                    reject();
-                    return;
-                }
-                logger.info(`[MQTT] Subscription successful. Qos: ${qos}`);
-                resolve();
-            });
+    this.setupMqtt = async function() {
+        mqttClient.subscribe(MQTT_TOPIC_STATE, function(err, qos) {
+            if (err) {
+                throw new Error(`[MQTT] Error subscribing. Error ${err}`);
+            }
+            logger.info(`[MQTT] Subscription successful. Qos: ${qos}`);
         });
     }
 
@@ -237,7 +232,7 @@ const Bot = function(client) {
      * terminate
      */
     this.terminate = function(err) {
-        let error = new Error(err);
+        const error = new Error(err);
         logger.error(`[MQTT] bot failed ${error.message}`);
         logger.error(error.stack);
         process.exit(1);
@@ -250,7 +245,7 @@ const Bot = function(client) {
         return new Promise((resolve) => {
             let retry;
             client.addEventListener('formSubmission', processFormSubmission);
-            let logon = async function() {
+            const logon = async function() {
                 try {
                     user = await client.logon();
                     clearInterval(retry);
@@ -268,7 +263,6 @@ const Bot = function(client) {
      * start
      */
     this.start = async function() {
-        logger.info('[MQTT] say hi');
         monitoringConv = await getMonitoringConversation();
         if (monitoringConv) {
             sendControlForm();
