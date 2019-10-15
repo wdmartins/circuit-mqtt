@@ -39,7 +39,8 @@ const Bot = function(client) {
     /*
      * sendControlForm
      */
-    async function sendControlForm() {
+    async function sendControlForm(conv) {
+        conv = conv || monitoringConv;
         let item = {
             content: 'Control Form',
             form: {
@@ -106,12 +107,12 @@ const Bot = function(client) {
             return;
         }
         // Form has not been posted yet. See if the conversation has been resolved already
-        if (!monitoringConv) {
+        if (!conv) {
             logger.info(`[MQTT] Not ready to send form.`);
             return;
         }
         // Post form for the first time
-        await client.addTextItem(monitoringConv.convId, item).then((item => {currentItemId = item.itemId}));
+        await client.addTextItem(conv.convId, item).then((item => {currentItemId = item.itemId}));
     }
 
     /*
@@ -247,7 +248,7 @@ const Bot = function(client) {
     this.start = async function() {
         const conv = await getMonitoringConversation();
         if (conv) {
-            await sendControlForm();
+            await sendControlForm(conv);
             return conv;
         }
         
