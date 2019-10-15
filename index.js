@@ -21,8 +21,6 @@ const logger = bunyan.createLogger({
     stream: process.stdout
 });
 
-// The Circuit user
-let user;
 // The Conversation where form will be posted and updated
 let monitoringConv;
 // The MQTT Client
@@ -113,7 +111,7 @@ const Bot = function(client) {
             return;
         }
         // Post form for the first time
-        client.addTextItem(monitoringConv.convId, item).then((item => {currentItemId = item.itemId}));
+        await client.addTextItem(monitoringConv.convId, item).then((item => {currentItemId = item.itemId}));
     }
 
     /*
@@ -161,10 +159,11 @@ const Bot = function(client) {
      * getMonitoringConversation
      */
     async function getMonitoringConversation() {
+        let conv;
         if (config.convId) {
             logger.info(`[MQTT] Check if conversation ${config.convId} exists`);
             try {
-                const conv = await client.getConversationById(config.convId);
+                conv = await client.getConversationById(config.convId);
                 if (conv) {
                     logger.info(`[MQTT] conversation ${config.convId} exists`);
                     return conv;
@@ -174,7 +173,8 @@ const Bot = function(client) {
             }
         }
         logger.info('[MQTT] Conversation not configured or it does not exist. Find direct conv with owner');
-        return client.getDirectConversationWithUser(config.botOwnerEmail, true);
+        conv = await client.getDirectConversationWithUser(config.botOwnerEmail, true);
+        return conv;
     }
 
     /*
@@ -189,7 +189,7 @@ const Bot = function(client) {
             mqttClient = mqtt.connect([config.mqttBroker]);
             mqttClient.on('connect', resolve);
             mqttClient.on('error', reject);
-            mqttClient.on('message', (topic, message) => {
+            mqttClient.on('message', async (topic, message) => {
                 logger.info(`[MQTT] Received topic ${topic}`);
                 logger.info(`[MQTT] Received message ${message.toString()}`);
                 switch (topic) {
@@ -206,7 +206,7 @@ const Bot = function(client) {
                             currentEffect = message.effect || currentEffect;
                         }
                         // Update control form according to received light values
-                        sendControlForm();
+                        await sendControlForm();
                         break;
                     default:
                         logger.warn(`[MQTT] Unhandled Topic: ${topic}`);
@@ -219,7 +219,7 @@ const Bot = function(client) {
     /*
      * setupMqtt
      */
-    this.setupMqtt = async function() {
+    this.setupMqtt = function() {
         mqttClient.subscribe(MQTT_TOPIC_STATE, function(err, qos) {
             if (err) {
                 throw new Error(`[MQTT] Error subscribing. Error ${err}`);
@@ -228,52 +228,37 @@ const Bot = function(client) {
         });
     }
 
-    /*
-     * terminate
-     */
-    this.terminate = function(err) {
-        const error = new Error(err);
-        logger.error(`[MQTT] bot failed ${error.message}`);
-        logger.error(error.stack);
-        process.exit(1);
-    };
 
     /*
      * Logon Client
      */
-    this.logon = function() {
-        return new Promise((resolve) => {
-            let retry;
-            client.addEventListener('formSubmission', processFormSubmission);
-            const logon = async function() {
-                try {
-                    user = await client.logon();
-                    clearInterval(retry);
-                    resolve();
-                } catch (error) {
-                    logger.error(`[MQTT] Error logging Bot. Error: ${error}`);
-                }
-            };
-            logger.info(`[MQTT] Create bot instance with id: ${config.bot.client_id}`);
-            retry = setInterval(logon, 2000);
-        });
+    this.logon = async function() {
+        client.addEventListener('formSubmission', processFormSubmission);
+
+        logger.info(`[MQTT] Create bot instance with id: ${config.bot.client_id}`);
+        const user = await client.logon();
+        logger.info(`[MQTT] Bot logged on as: ${user.emailAddress}`);
+        return user;
     };
 
     /*
      * start
      */
     this.start = async function() {
-        monitoringConv = await getMonitoringConversation();
-        if (monitoringConv) {
-            sendControlForm();
+        const conv = await getMonitoringConversation();
+        if (conv) {
+            await sendControlForm();
+            return conv;
         }
+        
+        throw new Error(`[MQTT] Cannot get/create monitoring conversation`);
     };
 
 
     /*
      * updateUserData
      */
-    this.updateUserData = async function() {
+    this.updateUserData = async function(user) {
         if (user && user.displayName !== `${config.bot.first_name} ${config.bot.last_name}`) {
             // Need to update user data
             try {
@@ -286,18 +271,26 @@ const Bot = function(client) {
                     lastName: config.bot.last_name,
                 });
             } catch (error) {
-                logger.error(`[MQTT] Unable to update user data. Error: ${error}`);
+                logger.error(`[MQTT] Unable to update user data: ${error.message}`);
+                throw error;
             }
         }
         return user;
     };
 };
 
-let bot = new Bot(new Circuit.Client(config.bot));
-bot.logon()
-    .then(bot.updateUserData)
-    .then(bot.connectToMqttBroker)
-    .then(bot.setupMqtt)
-    .then(bot.start)
-    .catch(bot.terminate);
 
+(async () => {
+    try {
+        const bot = new Bot(new Circuit.Client(config.bot));
+        const user = await bot.logon();
+        await bot.updateUserData(user);
+        await bot.connectToMqttBroker();
+        bot.setupMqtt();
+        monitoringConv = await bot.start();
+    } catch (e) {
+        logger.error(`[MQTT] bot failed ${e.message}`);
+        logger.error(e.stack);
+        process.exit(1);
+    }
+})();
